@@ -91,6 +91,11 @@ void SECP256K1::add_eq(mpz_t x3, mpz_t y3, mpz_t z3, mpz_t x1, mpz_t y1,
         mpz_powm_ui(s0, x1, 2, prime);
         mpz_mul_ui(s0, s0, 3);
         mpz_mod(s0, s0, prime);
+        // mpz_powm_ui(s1, z1, 4, prime);
+        // mpz_mul_ui(s1, s1, 0 /* a */);
+        // mpz_mod(s1, s1, prime);
+        // mpz_add(s0, s0, s1);
+        // mpz_mod(s0, s0, prime);
         mpz_powm_ui(s1, s0, 2, prime);
         mpz_powm_ui(s2, y1, 2, prime);
         mpz_mul(s3, s2, x1);
