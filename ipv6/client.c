@@ -12,6 +12,8 @@
 
 #define ADDRSTRLEN                                                             \
   (INET_ADDRSTRLEN < INET6_ADDRSTRLEN ? INET6_ADDRSTRLEN : INET_ADDRSTRLEN)
+#define LEN4 sizeof(struct sockaddr_in)
+#define LEN6 sizeof(struct sockaddr_in6)
 
 int main(int argc, char **argv) {
   uint16_t port;
@@ -19,8 +21,7 @@ int main(int argc, char **argv) {
   struct sockaddr_in laddr4, raddr4;
   struct sockaddr_in6 laddr6, raddr6;
   void *raddr_sin_addr;
-  socklen_t len, len4 = sizeof(struct sockaddr_in),
-                 len6 = sizeof(struct sockaddr_in6);
+  socklen_t len;
   int domain, sock;
   ssize_t n;
   char buf[BUF_SIZE], inetpbuf[ADDRSTRLEN];
@@ -30,29 +31,27 @@ int main(int argc, char **argv) {
     return -1;
   }
   port = htons(atoi(argv[2]));
-  memset(&laddr4, 0, len4);
-  memset(&raddr4, 0, len4);
-  memset(&laddr6, 0, len6);
-  memset(&raddr6, 0, len6);
+  memset(&laddr4, 0, LEN4);
+  memset(&raddr4, 0, LEN4);
+  memset(&laddr6, 0, LEN6);
+  memset(&raddr6, 0, LEN6);
   laddr4.sin_family = AF_INET;
   raddr4.sin_family = AF_INET;
   laddr6.sin6_family = AF_INET6;
   raddr6.sin6_family = AF_INET6;
   raddr4.sin_port = port;
   raddr6.sin6_port = port;
-  laddr4.sin_addr.s_addr = INADDR_ANY;
-  inet_pton(AF_INET6, "", &laddr6.sin6_addr);
   if (inet_pton(AF_INET, argv[1], &raddr4.sin_addr) == 1) {
     laddr = (struct sockaddr *)&laddr4;
     raddr = (struct sockaddr *)&raddr4;
-    len = len4;
+    len = LEN4;
     domain = AF_INET;
     raddr_sin_addr = &raddr4.sin_addr;
     puts("use ipv4");
   } else if (inet_pton(AF_INET6, argv[1], &raddr6.sin6_addr) == 1) {
     laddr = (struct sockaddr *)&laddr6;
     raddr = (struct sockaddr *)&raddr6;
-    len = len6;
+    len = LEN6;
     domain = AF_INET6;
     raddr_sin_addr = &raddr6.sin6_addr;
     puts("use ipv6");
