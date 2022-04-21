@@ -8,14 +8,17 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <netinet/in.h>
 
 #define BUFSIZE 4096
 #define ADDRSTRLEN                                                             \
   INET_ADDRSTRLEN > INET6_ADDRSTRLEN ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN
+#define UNPATHLEN 108
 
 char buf[BUFSIZE], ntopbuf[ADDRSTRLEN];
 
@@ -162,13 +165,15 @@ void sig_chld(int signo) {
 }
 
 int main(int argc, char **argv) {
-  int sockfd, clifd, domain = AF_INET, type = SOCK_STREAM, backlog = 5, nread,
+  int sockfd, clifd, domain = AF_UNIX, type = SOCK_STREAM, backlog = 5, nread,
                      ret;
   short port = 0, cliport;
-  const char *address = NULL;
+  const char *address = "/tmp/serv.sock";
+  struct addrinfo hints, *rai;
   union {
     struct sockaddr_in a4;
     struct sockaddr_in6 a6;
+    struct sockaddr_un un;
   } servaddr, cliaddr;
   socklen_t socklen;
   enum { c_mode, s_mode } mode = c_mode;
@@ -176,12 +181,13 @@ int main(int argc, char **argv) {
   void (*cf)(int, int);
   void (*sf)(int, int, struct sockaddr *, socklen_t, int);
 
-  while ((ret = getopt(argc, argv, "hTU4::6::p:b:csed")) > 0) {
+  while ((ret = getopt(argc, argv, "hTU4::6::u:p:b:csed")) > 0) {
     switch (ret) {
     case 'h':
-      printf("usage: %s [-h] [-TU] [-46[ADDR]] [-p PORT] [-b BACKLOG] [-cs] "
-             "[-ed]",
-             argv[0]);
+      printf(
+          "usage: %s [-h] [-TU] [-46[ADDR] -u [PATH]] [-p PORT] [-b BACKLOG] "
+          "[-cs] [-ed]",
+          argv[0]);
       break;
     case 'T':
       type = SOCK_STREAM;
@@ -195,6 +201,10 @@ int main(int argc, char **argv) {
       break;
     case '6':
       domain = AF_INET6;
+      address = optarg;
+      break;
+    case 'u':
+      domain = AF_UNIX;
       address = optarg;
       break;
     case 'p':
@@ -241,26 +251,54 @@ int main(int argc, char **argv) {
   case AF_INET:
     servaddr.a4.sin_family = AF_INET;
     servaddr.a4.sin_port = htons(port);
-    if (address)
-      ret = inet_pton(AF_INET, address, &servaddr.a4.sin_addr);
+    socklen = sizeof(struct sockaddr_in);
     break;
   case AF_INET6:
     servaddr.a6.sin6_family = AF_INET6;
     servaddr.a6.sin6_port = htons(port);
-    if (address)
-      ret = inet_pton(AF_INET6, address, &servaddr.a6.sin6_addr);
+    socklen = sizeof(struct sockaddr_in6);
+    break;
+  case AF_UNIX:
+    servaddr.un.sun_family = AF_UNIX;
+    if (strlen(address) >= UNPATHLEN) {
+      fprintf(stderr, "path too long: %s\n", address);
+      exit(-1);
+    }
+    strncpy(servaddr.un.sun_path, address, UNPATHLEN);
+    socklen = sizeof(struct sockaddr_un);
     break;
   }
-  if (address) {
-    switch (ret) {
-    case 0:
-      fprintf(stderr, "inet_pton invalid address\n");
-      exit(-1);
+  if (address && (domain == AF_INET || domain == AF_INET6)) {
+    switch (domain) {
+    case AF_INET:
+      ret = inet_pton(AF_INET, address, &servaddr.a4.sin_addr);
       break;
-    case -1:
+    case AF_INET6:
+      ret = inet_pton(AF_INET6, address, &servaddr.a6.sin6_addr);
+      break;
+    }
+    if (ret < 0) {
       perror("inet_pton failed");
       exit(-1);
-      break;
+    }
+    if (!ret) {
+      memset(&hints, 0, sizeof(hints));
+      hints.ai_family = domain;
+      hints.ai_socktype = type;
+      if ((ret = getaddrinfo(address, NULL, &hints, &rai))) {
+        fprintf(stderr, "getaddrinfo failed: %s\n", gai_strerror(ret));
+        exit(-1);
+      }
+      switch (domain) {
+      case AF_INET:
+        servaddr.a4.sin_addr = ((struct sockaddr_in *)rai->ai_addr)->sin_addr;
+        break;
+      case AF_INET6:
+        servaddr.a6.sin6_addr =
+            ((struct sockaddr_in6 *)rai->ai_addr)->sin6_addr;
+        break;
+      }
+      freeaddrinfo(rai);
     }
   }
 
@@ -273,7 +311,25 @@ int main(int argc, char **argv) {
 
   case c_mode:
 
-    if (connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+    if (domain == AF_UNIX && type == SOCK_DGRAM) {
+      memset(&cliaddr, 0, sizeof(cliaddr));
+      cliaddr.un.sun_family = AF_UNIX;
+      if ((nread = snprintf(cliaddr.un.sun_path, UNPATHLEN, "/tmp/serv%d.sock",
+                            getpid())) < 0) {
+        perror("snprintf failed");
+        exit(-1);
+      }
+      if (nread >= UNPATHLEN) {
+        fprintf(stderr, "snprintf buffer too small: %d/%d\n", nread, UNPATHLEN);
+        exit(-1);
+      }
+      if (bind(sockfd, (struct sockaddr *)&cliaddr, socklen) < 0) {
+        perror("bind failed");
+        exit(-1);
+      }
+    }
+
+    if (connect(sockfd, (struct sockaddr *)&servaddr, socklen) < 0) {
       perror("connect failed");
       exit(-1);
     }
@@ -286,7 +342,13 @@ int main(int argc, char **argv) {
 
   case s_mode:
 
-    if (bind(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+    if (domain == AF_UNIX && unlink(servaddr.un.sun_path) < 0 &&
+        errno != ENOENT) {
+      perror("unlink failed");
+      exit(-1);
+    }
+
+    if (bind(sockfd, (struct sockaddr *)&servaddr, socklen) < 0) {
       perror("bind failed");
       exit(-1);
     }
@@ -327,6 +389,8 @@ int main(int argc, char **argv) {
           perror("inet_ntop failed");
           exit(-1);
         }
+        printf("client address %s, port %d\n", ntopbuf,
+               (unsigned short)cliport);
         break;
       case AF_INET6:
         cliport = ntohs(cliaddr.a6.sin6_port);
@@ -335,13 +399,17 @@ int main(int argc, char **argv) {
           perror("inet_ntop failed");
           exit(-1);
         }
+        printf("client address %s, port %d\n", ntopbuf,
+               (unsigned short)cliport);
+        break;
+      case AF_UNIX:
+        printf("client address %s\n", cliaddr.un.sun_path);
         break;
       default:
         fprintf(stderr, "unknown address family: %d\n",
                 ((struct sockaddr *)&cliaddr)->sa_family);
         exit(-1);
       }
-      printf("client address %s, port %d\n", ntopbuf, (unsigned short)cliport);
 
       switch (type) {
       case SOCK_STREAM:
