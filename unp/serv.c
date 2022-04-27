@@ -170,7 +170,7 @@ int main(int argc, char **argv) {
   int sockfd, clifd, domain = AF_UNIX, type = SOCK_STREAM, backlog = 5,
                      mcast = 0, nread, ret;
   short port = 0, cliport;
-  const char *address = "/tmp/serv.sock", *interface = NULL;
+  const char *address = NULL, *interface = NULL;
   struct addrinfo hints, *rai;
   union {
     struct sockaddr_in a4;
@@ -186,10 +186,10 @@ int main(int argc, char **argv) {
   void (*cf)(int, int);
   void (*sf)(int, int, struct sockaddr *, socklen_t, int);
 
-  while ((ret = getopt(argc, argv, "hTU4::6::u:p:m::b:csed")) > 0) {
+  while ((ret = getopt(argc, argv, "hTU4::6::u::p:m::b:csed")) > 0) {
     switch (ret) {
     case 'h':
-      printf("usage: %s [-h] [-TU] [-46[ADDRESS] -u [PATH]] [-p PORT] "
+      printf("usage: %s [-h] [-TU] [-46u[ADDRESS]] [-p PORT] "
              "[-m[INTERFACE]] [-b BACKLOG] [-cs] [-ed]\n",
              argv[0]);
       exit(1);
@@ -212,12 +212,12 @@ int main(int argc, char **argv) {
       domain = AF_UNIX;
       address = optarg;
       break;
+    case 'p':
+      port = atoi(optarg);
+      break;
     case 'm':
       mcast = 1;
       interface = optarg;
-      break;
-    case 'p':
-      port = atoi(optarg);
       break;
     case 'b':
       backlog = atoi(optarg);
@@ -269,6 +269,8 @@ int main(int argc, char **argv) {
     break;
   case AF_UNIX:
     servaddr.un.sun_family = AF_UNIX;
+    if (!address)
+      address = "/tmp/serv.sock";
     if (strlen(address) >= UNPATHLEN) {
       fprintf(stderr, "path too long: %s\n", address);
       exit(-1);
