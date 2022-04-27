@@ -5,6 +5,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -12,6 +13,7 @@
 #include <sys/wait.h>
 
 #include <arpa/inet.h>
+#include <net/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
 
@@ -165,10 +167,10 @@ void sig_chld(int signo) {
 }
 
 int main(int argc, char **argv) {
-  int sockfd, clifd, domain = AF_UNIX, type = SOCK_STREAM, backlog = 5, nread,
-                     ret;
+  int sockfd, clifd, domain = AF_UNIX, type = SOCK_STREAM, backlog = 5,
+                     mcast = 0, nread, ret;
   short port = 0, cliport;
-  const char *address = "/tmp/serv.sock";
+  const char *address = "/tmp/serv.sock", *interface = NULL;
   struct addrinfo hints, *rai;
   union {
     struct sockaddr_in a4;
@@ -176,18 +178,21 @@ int main(int argc, char **argv) {
     struct sockaddr_un un;
   } servaddr, cliaddr;
   socklen_t socklen;
+  struct ifreq ifr;
+  struct ip_mreq imr4;
+  struct ipv6_mreq imr6;
   enum { c_mode, s_mode } mode = c_mode;
   enum { e_serv, d_serv } serv = d_serv;
   void (*cf)(int, int);
   void (*sf)(int, int, struct sockaddr *, socklen_t, int);
 
-  while ((ret = getopt(argc, argv, "hTU4::6::u:p:b:csed")) > 0) {
+  while ((ret = getopt(argc, argv, "hTU4::6::u:p:m::b:csed")) > 0) {
     switch (ret) {
     case 'h':
-      printf(
-          "usage: %s [-h] [-TU] [-46[ADDR] -u [PATH]] [-p PORT] [-b BACKLOG] "
-          "[-cs] [-ed]",
-          argv[0]);
+      printf("usage: %s [-h] [-TU] [-46[ADDRESS] -u [PATH]] [-p PORT] "
+             "[-m[INTERFACE]] [-b BACKLOG] [-cs] [-ed]\n",
+             argv[0]);
+      exit(1);
       break;
     case 'T':
       type = SOCK_STREAM;
@@ -206,6 +211,10 @@ int main(int argc, char **argv) {
     case 'u':
       domain = AF_UNIX;
       address = optarg;
+      break;
+    case 'm':
+      mcast = 1;
+      interface = optarg;
       break;
     case 'p':
       port = atoi(optarg);
@@ -346,6 +355,53 @@ int main(int argc, char **argv) {
         errno != ENOENT) {
       perror("unlink failed");
       exit(-1);
+    }
+
+    if (mcast) {
+      switch (domain) {
+      case AF_INET:
+        memset(&imr4, 0, sizeof(imr4));
+        memcpy(&imr4.imr_multiaddr, &servaddr.a4.sin_addr,
+               sizeof(struct in_addr));
+        if (interface) {
+          memset(&ifr, 0, sizeof(ifr));
+          strncpy(ifr.ifr_name, interface, IFNAMSIZ);
+          if (ioctl(sockfd, SIOCGIFADDR, &ifr) < 0) {
+            perror("ioctl SIOCGIFADDR failed");
+            exit(-1);
+          }
+          memcpy(&imr4.imr_interface,
+                 &((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr,
+                 sizeof(struct in_addr));
+        }
+        if (setsockopt(sockfd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &imr4,
+                       sizeof(imr4)) < 0) {
+          perror("setsockopt IP_ADD_MEMBERSHIP failed");
+          exit(-1);
+        }
+        memset(&servaddr.a4.sin_addr, 0, sizeof(struct in_addr));
+        break;
+      case AF_INET6:
+        memset(&imr6, 0, sizeof(imr6));
+        memcpy(&imr6.ipv6mr_multiaddr, &servaddr.a6.sin6_addr,
+               sizeof(struct in6_addr));
+        if (interface) {
+          memset(&ifr, 0, sizeof(ifr));
+          strncpy(ifr.ifr_name, interface, IFNAMSIZ);
+          if (ioctl(sockfd, SIOCGIFINDEX, &ifr) < 0) {
+            perror("ioctl SIOCGIFINDEX failed");
+            exit(-1);
+          }
+          imr6.ipv6mr_interface = ifr.ifr_ifindex;
+        }
+        if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &imr6,
+                       sizeof(imr6)) < 0) {
+          perror("setsockopt IPV6_JOIN_GROUP failed");
+          exit(-1);
+        }
+        memset(&servaddr.a6.sin6_addr, 0, sizeof(struct sockaddr_in6));
+        break;
+      }
     }
 
     if (bind(sockfd, (struct sockaddr *)&servaddr, socklen) < 0) {
