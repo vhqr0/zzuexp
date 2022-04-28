@@ -20,24 +20,201 @@
 #define BUFSIZE 4096
 #define ADDRSTRLEN                                                             \
   INET_ADDRSTRLEN > INET6_ADDRSTRLEN ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN
-#define UNPATHLEN 108
+
+extern struct sockaddr_un esun;
+#define UNPATHLEN sizeof(esun.sun_path)
 
 char buf[BUFSIZE], ntopbuf[ADDRSTRLEN];
 
-void writen(int fd, char *b, int n) {
-  int nread;
+void Perror(const char *msg) {
+  perror(msg);
+  exit(-1);
+}
 
+void Pmsg(const char *msg) {
+  fprintf(stderr, "%s\n", msg);
+  exit(-1);
+}
+
+short Ntop(void *addr) {
+  int domain;
+  void *src;
+  short port;
+  domain = ((struct sockaddr *)addr)->sa_family;
+  switch (domain) {
+  case AF_INET:
+    src = &((struct sockaddr_in *)addr)->sin_addr;
+    port = ((struct sockaddr_in *)addr)->sin_port;
+    break;
+  case AF_INET6:
+    src = &((struct sockaddr_in6 *)addr)->sin6_addr;
+    port = ((struct sockaddr_in6 *)addr)->sin6_port;
+    break;
+  }
+  if (!inet_ntop(domain, src, ntopbuf, sizeof(ntopbuf)))
+    Perror("inet_ntop faied");
+  return port;
+}
+
+int Pton(const char *address, void *addr) {
+  int domain, ret;
+  void *dst = NULL;
+  domain = ((struct sockaddr *)addr)->sa_family;
+  switch (domain) {
+  case AF_INET:
+    dst = &((struct sockaddr_in *)addr)->sin_addr;
+    break;
+  case AF_INET6:
+    dst = &((struct sockaddr_in6 *)addr)->sin6_addr;
+    break;
+  }
+  if ((ret = inet_pton(domain, address, dst)) < 0)
+    Perror("inet_pton failed");
+  return ret;
+}
+
+void Addrinfo(const char *address, void *addr) {
+  int domain, ret;
+  void *src = NULL, *dst = NULL;
+  struct addrinfo hints, *rai;
+  domain = ((struct sockaddr *)addr)->sa_family;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = domain;
+  if ((ret = getaddrinfo(address, NULL, &hints, &rai))) {
+    fprintf(stderr, "getaddrinfo failed: %s\n", gai_strerror(ret));
+    exit(-1);
+  }
+  switch (domain) {
+  case AF_INET:
+    dst = &((struct sockaddr_in *)addr)->sin_addr;
+    src = &((struct sockaddr_in *)rai->ai_addr)->sin_addr;
+    ret = sizeof(struct in_addr);
+    break;
+  case AF_INET6:
+    dst = &((struct sockaddr_in6 *)addr)->sin6_addr;
+    src = &((struct sockaddr_in6 *)rai->ai_addr)->sin6_addr;
+    ret = sizeof(struct in6_addr);
+    break;
+  }
+  memcpy(dst, src, ret);
+  freeaddrinfo(rai);
+}
+
+int Bcastcheck(int fd, void *addr) {
+  int on = 1, ret = 0;
+  if (((struct sockaddr *)addr)->sa_family == AF_INET &&
+      ((struct sockaddr_in *)addr)->sin_addr.s_addr ==
+          htonl(INADDR_BROADCAST)) {
+    if (setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on)) < 0)
+      Perror("setsockopt SO_BROADCAST failed");
+    ret = 1;
+  }
+  return ret;
+}
+
+int Mcastcheck(int fd, void *addr, const char *interface, int checkonly) {
+  int ret;
+  struct ifreq ifr;
+  struct ip_mreq imr4;
+  struct ipv6_mreq imr6;
+  switch (((struct sockaddr *)addr)->sa_family) {
+  case AF_INET:
+    if (!IN_MULTICAST(((struct sockaddr_in *)addr)->sin_addr.s_addr))
+      return 0;
+    if (checkonly)
+      return 1;
+    memset(&imr4, 0, sizeof(imr4));
+    memcpy(&imr4.imr_multiaddr, &((struct sockaddr_in *)addr)->sin_addr,
+           sizeof(struct in_addr));
+    if (interface) {
+      memset(&ifr, 0, sizeof(ifr));
+      strncpy(ifr.ifr_name, interface, IFNAMSIZ);
+      if (ioctl(fd, SIOCGIFADDR, &ifr) < 0)
+        Perror("ioctl SIOCGIFADDR failed");
+      memcpy(&imr4.imr_interface,
+             &((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr,
+             sizeof(struct in_addr));
+    }
+    if (setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &imr4, sizeof(imr4)) < 0)
+      Perror("setsockopt IP_ADD_MEMBERSHIP failed");
+    memset(&((struct sockaddr_in *)addr)->sin_addr, 0, sizeof(struct in_addr));
+    break;
+  case AF_INET6:
+    if (!IN6_IS_ADDR_MULTICAST(&((struct sockaddr_in6 *)addr)->sin6_addr))
+      return 0;
+    if (checkonly)
+      return 1;
+    memset(&imr6, 0, sizeof(imr6));
+    memcpy(&imr6.ipv6mr_multiaddr, &((struct sockaddr_in6 *)addr)->sin6_addr,
+           sizeof(struct in6_addr));
+    if (interface) {
+      memset(&ifr, 0, sizeof(ifr));
+      strncpy(ifr.ifr_name, interface, IFNAMSIZ);
+      if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0)
+        Perror("ioctl SIOCGIFINDEX failed");
+      imr6.ipv6mr_interface = ifr.ifr_ifindex;
+    }
+    if (setsockopt(fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &imr6, sizeof(imr6)) < 0)
+      Perror("setsockopt IPV6_JOIN_GROUP failed");
+    memset(&((struct sockaddr_in6 *)addr)->sin6_addr, 0,
+           sizeof(struct sockaddr_in6));
+    break;
+  default:
+    return 0;
+  }
+  return 1;
+}
+
+int Read(int fd, char *b, int n) {
+  int ret;
+doread:
+  if ((ret = read(fd, b, n)) < 0) {
+    if (errno == EINTR)
+      goto doread;
+    Perror("read failed");
+  }
+  return ret;
+}
+
+int Write(int fd, char *b, int n) {
+  int ret;
+dowrite:
+  if ((ret = write(fd, b, n)) < 0) {
+    if (errno == EINTR)
+      goto dowrite;
+    Perror("write failed");
+  }
+  return ret;
+}
+
+int Recvfrom(int fd, void *b, int n, void *addr, socklen_t *socklen) {
+  int ret;
+dorecv:
+  if ((ret = recvfrom(fd, b, n, 0, (struct sockaddr *)addr, socklen)) < 0) {
+    if (errno == EINTR)
+      goto dorecv;
+    Perror("recvfrom failed");
+  }
+  return ret;
+}
+
+int Sendto(int fd, void *b, int n, void *addr, socklen_t socklen) {
+  int ret;
+dosend:
+  if ((ret = sendto(fd, b, n, 0, (struct sockaddr *)addr, socklen)) < 0) {
+    if (errno == EINTR)
+      goto dosend;
+    Perror("sendto failed");
+  }
+  return ret;
+}
+
+void Writen(int fd, char *b, int n) {
+  int nread;
   while (n > 0) {
-    if ((nread = write(fd, b, n)) < 0) {
-      if (errno == EINTR)
-        continue;
-      perror("write failed");
-      exit(-1);
-    }
-    if (!nread) {
-      fprintf(stderr, "write unexpected EOF\n");
-      exit(-1);
-    }
+    nread = Write(fd, b, n);
+    if (!nread)
+      Pmsg("write unexpected EOF");
     b += nread;
     n -= nread;
   }
@@ -55,48 +232,28 @@ void c_echo(int sockfd, int type, int udp_sendto, struct sockaddr *servaddr,
     if (select(sockfd + 1, &rfds, NULL, NULL, NULL) < 0) {
       if (errno == EINTR)
         continue;
-      perror("select failed");
-      exit(-1);
+      Perror("select failed");
     }
     if (FD_ISSET(sockfd, &rfds)) {
-      if ((nread = read(sockfd, buf, sizeof(buf))) < 0) {
-        if (errno == EINTR)
-          continue;
-        perror("read failed");
-        exit(-1);
-      }
-      if (!nread && type == SOCK_STREAM) {
-        fprintf(stderr, "server terminated prematurely\n");
-        exit(-1);
-      }
+      nread = Read(sockfd, buf, sizeof(buf));
+      if (!nread && type == SOCK_STREAM)
+        Pmsg("server terminated prematurely");
       if (nread)
-        writen(STDOUT_FILENO, buf, nread);
+        Writen(STDOUT_FILENO, buf, nread);
     }
     if (FD_ISSET(STDIN_FILENO, &rfds)) {
-      if ((nread = read(STDIN_FILENO, buf, sizeof(buf))) < 0) {
-        if (errno == EINTR)
-          continue;
-        perror("read failed");
-        exit(-1);
-      }
+      nread = Read(STDIN_FILENO, buf, sizeof(buf));
       if (!nread)
         return;
       switch (type) {
       case SOCK_STREAM:
-        writen(sockfd, buf, nread);
+        Writen(sockfd, buf, nread);
         break;
       case SOCK_DGRAM:
-        if (udp_sendto) {
-          if (sendto(sockfd, buf, nread, 0, servaddr, socklen) < 0) {
-            perror("sendto failed");
-            exit(-1);
-          }
-        } else {
-          if (write(sockfd, buf, nread) < 0) {
-            perror("write failed");
-            exit(-1);
-          }
-        }
+        if (udp_sendto)
+          Sendto(sockfd, buf, nread, servaddr, socklen);
+        else
+          Write(sockfd, buf, nread);
         break;
       }
     }
@@ -109,18 +266,15 @@ void s_echo(int sockfd, int type, struct sockaddr *cliaddr, socklen_t socklen,
 
   switch (type) {
   case SOCK_STREAM:
-    while ((nread = read(sockfd, buf, sizeof(buf))) > 0)
-      writen(sockfd, buf, nread);
-    if (nread < 0) {
-      perror("read failed");
-      exit(-1);
+    for (;;) {
+      nread = Read(sockfd, buf, sizeof(buf));
+      if (!nread)
+        break;
+      Writen(sockfd, buf, nread);
     }
     break;
   case SOCK_DGRAM:
-    if (sendto(sockfd, buf, n, 0, cliaddr, socklen) < 0) {
-      perror("send failed");
-      exit(-1);
-    }
+    Sendto(sockfd, buf, n, cliaddr, socklen);
     break;
   }
 }
@@ -131,29 +285,24 @@ void c_daytime(int sockfd, int type, int udp_sendto, struct sockaddr *servaddr,
 
   switch (type) {
   case SOCK_STREAM:
-    while ((nread = read(sockfd, buf, sizeof(buf))) > 0)
-      writen(STDOUT_FILENO, buf, nread);
+    for (;;) {
+      nread = Read(sockfd, buf, sizeof(buf));
+      if (!nread)
+        break;
+      Writen(STDOUT_FILENO, buf, nread);
+    }
     break;
   case SOCK_DGRAM:
-    if (udp_sendto) {
-      if (sendto(sockfd, "", 1, 0, servaddr, socklen) < 0) {
-        perror("sendto failed");
-        exit(-1);
-      }
-    } else {
-      if (write(sockfd, "", 1) < 0) {
-        perror("write failed");
-        exit(-1);
-      }
-    }
-    while ((nread = read(sockfd, buf, sizeof(buf))) >= 0)
+    if (udp_sendto)
+      Sendto(sockfd, "", 1, servaddr, socklen);
+    else
+      Write(sockfd, "", 1);
+    for (;;) {
+      nread = Read(sockfd, buf, sizeof(buf));
       if (nread)
-        writen(STDOUT_FILENO, buf, nread);
+        Writen(STDOUT_FILENO, buf, nread);
+    }
     break;
-  }
-  if (nread < 0) {
-    perror("read failed");
-    exit(-1);
   }
 }
 
@@ -163,24 +312,14 @@ void s_daytime(int sockfd, int type, struct sockaddr *cliaddr,
   time_t ticks;
 
   ticks = time(NULL);
-  if ((nread = snprintf(buf, sizeof(buf), "%.24s\r\n", ctime(&ticks))) < 0) {
-    perror("snprintf failed");
-    exit(-1);
-  }
-  if (nread >= sizeof(buf)) {
-    fprintf(stderr, "snprintf buffer too small: %d/%d\n", nread,
-            (int)(sizeof(buf)));
-    exit(-1);
-  }
+  if ((nread = snprintf(buf, sizeof(buf), "%.24s\r\n", ctime(&ticks))) < 0)
+    Perror("snprintf failed");
   switch (type) {
   case SOCK_STREAM:
-    writen(sockfd, buf, nread);
+    Writen(sockfd, buf, nread);
     break;
   case SOCK_DGRAM:
-    if (sendto(sockfd, buf, nread, 0, cliaddr, socklen) < 0) {
-      perror("sendto failed");
-      exit(-1);
-    }
+    Sendto(sockfd, buf, nread, cliaddr, socklen);
     break;
   }
 }
@@ -188,35 +327,31 @@ void s_daytime(int sockfd, int type, struct sockaddr *cliaddr,
 void sig_chld(int signo) {
   int pid, stat;
 
-  if ((pid = waitpid(-1, &stat, WNOHANG)) > 0)
+  while ((pid = waitpid(-1, &stat, WNOHANG)) > 0)
     printf("child %d terminated\n", pid);
 }
 
 int main(int argc, char **argv) {
-  int sockfd, clifd, domain = AF_UNIX, type = SOCK_STREAM, udp_sendto, bcast,
-                     mcast = 0, backlog = 5, nread, ret;
+  int sockfd, clifd, domain = AF_UNIX, type = SOCK_STREAM, udp_sendto = 0,
+                     backlog = 5, nread, ret;
   short port = 0;
   const char *address = NULL, *interface = NULL;
-  struct addrinfo hints, *rai;
   union {
     struct sockaddr_in a4;
     struct sockaddr_in6 a6;
     struct sockaddr_un un;
   } servaddr, cliaddr;
   socklen_t socklen;
-  struct ifreq ifr;
-  struct ip_mreq imr4;
-  struct ipv6_mreq imr6;
   enum { c_mode, s_mode } mode = c_mode;
   enum { e_serv, d_serv } serv = d_serv;
   void (*cf)(int, int, int, struct sockaddr *, socklen_t);
   void (*sf)(int, int, struct sockaddr *, socklen_t, int);
 
-  while ((ret = getopt(argc, argv, "hTU::4::6::u::p:m::b:csed")) > 0) {
+  while ((ret = getopt(argc, argv, "hTU::4::6::u::p:i:b:csed")) > 0) {
     switch (ret) {
     case 'h':
-      printf("usage: %s [-h] [-TU[SB]] [-46u[ADDRESS]] [-p PORT] "
-             "[-m[INTERFACE]] [-b BACKLOG] [-cs] [-ed]\n",
+      printf("usage: %s [-h] [-TU[S]] [-46u[ADDRESS]] [-p PORT] "
+             "[-i [INTERFACE]] [-b BACKLOG] [-cs] [-ed]\n",
              argv[0]);
       exit(1);
       break;
@@ -225,15 +360,7 @@ int main(int argc, char **argv) {
       break;
     case 'U':
       type = SOCK_DGRAM;
-      if (optarg) {
-        udp_sendto = 1;
-        if (*optarg == 'B')
-          bcast = 1;
-        else
-          bcast = 0;
-      } else {
-        udp_sendto = 0;
-      }
+      udp_sendto = !!optarg;
       break;
     case '4':
       domain = AF_INET;
@@ -250,8 +377,7 @@ int main(int argc, char **argv) {
     case 'p':
       port = atoi(optarg);
       break;
-    case 'm':
-      mcast = 1;
+    case 'i':
       interface = optarg;
       break;
     case 'b':
@@ -270,8 +396,7 @@ int main(int argc, char **argv) {
       serv = d_serv;
       break;
     default:
-      fprintf(stderr, "unknown option: %c\n", ret);
-      exit(-1);
+      Pmsg("unknown option");
     }
   }
 
@@ -306,52 +431,16 @@ int main(int argc, char **argv) {
     servaddr.un.sun_family = AF_UNIX;
     if (!address)
       address = "/tmp/serv.sock";
-    if (strlen(address) >= UNPATHLEN) {
-      fprintf(stderr, "path too long: %s\n", address);
-      exit(-1);
-    }
     strncpy(servaddr.un.sun_path, address, UNPATHLEN);
     socklen = sizeof(struct sockaddr_un);
     break;
   }
-  if (address && (domain == AF_INET || domain == AF_INET6)) {
-    switch (domain) {
-    case AF_INET:
-      ret = inet_pton(AF_INET, address, &servaddr.a4.sin_addr);
-      break;
-    case AF_INET6:
-      ret = inet_pton(AF_INET6, address, &servaddr.a6.sin6_addr);
-      break;
-    }
-    if (ret < 0) {
-      perror("inet_pton failed");
-      exit(-1);
-    }
-    if (!ret) {
-      memset(&hints, 0, sizeof(hints));
-      hints.ai_family = domain;
-      hints.ai_socktype = type;
-      if ((ret = getaddrinfo(address, NULL, &hints, &rai))) {
-        fprintf(stderr, "getaddrinfo failed: %s\n", gai_strerror(ret));
-        exit(-1);
-      }
-      switch (domain) {
-      case AF_INET:
-        servaddr.a4.sin_addr = ((struct sockaddr_in *)rai->ai_addr)->sin_addr;
-        break;
-      case AF_INET6:
-        servaddr.a6.sin6_addr =
-            ((struct sockaddr_in6 *)rai->ai_addr)->sin6_addr;
-        break;
-      }
-      freeaddrinfo(rai);
-    }
-  }
+  if (address && (domain == AF_INET || domain == AF_INET6) &&
+      !Pton(address, &servaddr))
+    Addrinfo(address, &servaddr);
 
-  if ((sockfd = socket(domain, type, 0)) < 0) {
-    perror("socket failed");
-    exit(-1);
-  }
+  if ((sockfd = socket(domain, type, 0)) < 0)
+    Perror("socket failed");
 
   switch (mode) {
 
@@ -360,35 +449,21 @@ int main(int argc, char **argv) {
     if (domain == AF_UNIX && type == SOCK_DGRAM) {
       memset(&cliaddr, 0, sizeof(cliaddr));
       cliaddr.un.sun_family = AF_UNIX;
-      if ((nread = snprintf(cliaddr.un.sun_path, UNPATHLEN, "/tmp/serv%d.sock",
-                            getpid())) < 0) {
-        perror("snprintf failed");
-        exit(-1);
-      }
-      if (nread >= UNPATHLEN) {
-        fprintf(stderr, "snprintf buffer too small: %d/%d\n", nread, UNPATHLEN);
-        exit(-1);
-      }
-      if (bind(sockfd, (struct sockaddr *)&cliaddr, socklen) < 0) {
-        perror("bind failed");
-        exit(-1);
-      }
+      if (snprintf(cliaddr.un.sun_path, UNPATHLEN, "/tmp/serv%d.sock",
+                   getpid()) < 0)
+        Perror("snprintf failed");
+      if (bind(sockfd, (struct sockaddr *)&cliaddr, socklen) < 0)
+        Perror("bind failed");
     }
 
-    if (type == SOCK_DGRAM && udp_sendto) {
-      ret = 1;
-      if (bcast &&
-          setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &ret, sizeof(ret)) < 0) {
-        perror("setsockopt SO_BROADCAST failed");
-        exit(-1);
-      }
+    if (Bcastcheck(sockfd, &servaddr) || Mcastcheck(sockfd, &servaddr, NULL, 1))
+      udp_sendto = 1;
+
+    if (type == SOCK_DGRAM && udp_sendto)
       goto skipconnect;
-    }
 
-    if (connect(sockfd, (struct sockaddr *)&servaddr, socklen) < 0) {
-      perror("connect failed");
-      exit(-1);
-    }
+    if (connect(sockfd, (struct sockaddr *)&servaddr, socklen) < 0)
+      Perror("connect failed");
 
   skipconnect:
 
@@ -401,68 +476,17 @@ int main(int argc, char **argv) {
   case s_mode:
 
     if (domain == AF_UNIX && unlink(servaddr.un.sun_path) < 0 &&
-        errno != ENOENT) {
-      perror("unlink failed");
-      exit(-1);
-    }
+        errno != ENOENT)
+      Perror("unlink failed");
 
-    if (mcast) {
-      switch (domain) {
-      case AF_INET:
-        memset(&imr4, 0, sizeof(imr4));
-        memcpy(&imr4.imr_multiaddr, &servaddr.a4.sin_addr,
-               sizeof(struct in_addr));
-        if (interface) {
-          memset(&ifr, 0, sizeof(ifr));
-          strncpy(ifr.ifr_name, interface, IFNAMSIZ);
-          if (ioctl(sockfd, SIOCGIFADDR, &ifr) < 0) {
-            perror("ioctl SIOCGIFADDR failed");
-            exit(-1);
-          }
-          memcpy(&imr4.imr_interface,
-                 &((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr,
-                 sizeof(struct in_addr));
-        }
-        if (setsockopt(sockfd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &imr4,
-                       sizeof(imr4)) < 0) {
-          perror("setsockopt IP_ADD_MEMBERSHIP failed");
-          exit(-1);
-        }
-        memset(&servaddr.a4.sin_addr, 0, sizeof(struct in_addr));
-        break;
-      case AF_INET6:
-        memset(&imr6, 0, sizeof(imr6));
-        memcpy(&imr6.ipv6mr_multiaddr, &servaddr.a6.sin6_addr,
-               sizeof(struct in6_addr));
-        if (interface) {
-          memset(&ifr, 0, sizeof(ifr));
-          strncpy(ifr.ifr_name, interface, IFNAMSIZ);
-          if (ioctl(sockfd, SIOCGIFINDEX, &ifr) < 0) {
-            perror("ioctl SIOCGIFINDEX failed");
-            exit(-1);
-          }
-          imr6.ipv6mr_interface = ifr.ifr_ifindex;
-        }
-        if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &imr6,
-                       sizeof(imr6)) < 0) {
-          perror("setsockopt IPV6_JOIN_GROUP failed");
-          exit(-1);
-        }
-        memset(&servaddr.a6.sin6_addr, 0, sizeof(struct sockaddr_in6));
-        break;
-      }
-    }
+    Mcastcheck(sockfd, &servaddr, interface, 0);
 
-    if (bind(sockfd, (struct sockaddr *)&servaddr, socklen) < 0) {
-      perror("bind failed");
-      exit(-1);
-    }
+    if (bind(sockfd, (struct sockaddr *)&servaddr, socklen) < 0)
+      Perror("bind failed");
 
     if (type == SOCK_STREAM) {
-      if (listen(sockfd, backlog) < 0) {
-        perror("listen failed");
-        exit(-1);
-      }
+      if (listen(sockfd, backlog) < 0)
+        Perror("listen failed");
       signal(SIGCHLD, sig_chld);
     }
 
@@ -471,38 +495,18 @@ int main(int argc, char **argv) {
       socklen = sizeof(cliaddr);
       switch (type) {
       case SOCK_STREAM:
-        if ((clifd = accept(sockfd, (struct sockaddr *)&cliaddr, &socklen)) <
-            0) {
-          perror("accept failed");
-          exit(-1);
-        }
+        if ((clifd = accept(sockfd, (struct sockaddr *)&cliaddr, &socklen)) < 0)
+          Perror("accept failed");
         break;
       case SOCK_DGRAM:
-        if ((nread = recvfrom(sockfd, buf, sizeof(buf), 0,
-                              (struct sockaddr *)&cliaddr, &socklen)) < 0) {
-          perror("recvfrom failed");
-          exit(-1);
-        }
+        nread = Recvfrom(sockfd, buf, sizeof(buf), &cliaddr, &socklen);
         break;
       }
 
       switch (domain) {
       case AF_INET:
-        port = ntohs(cliaddr.a4.sin_port);
-        if (!inet_ntop(AF_INET, &cliaddr.a4.sin_addr, ntopbuf,
-                       sizeof(ntopbuf))) {
-          perror("inet_ntop failed");
-          exit(-1);
-        }
-        printf("client address %s, port %d\n", ntopbuf, (unsigned short)port);
-        break;
       case AF_INET6:
-        port = ntohs(cliaddr.a6.sin6_port);
-        if (!inet_ntop(AF_INET6, &cliaddr.a6.sin6_addr, ntopbuf,
-                       sizeof(ntopbuf))) {
-          perror("inet_ntop failed");
-          exit(-1);
-        }
+        port = Ntop(&cliaddr);
         printf("client address %s, port %d\n", ntopbuf, (unsigned short)port);
         break;
       case AF_UNIX:
@@ -512,10 +516,8 @@ int main(int argc, char **argv) {
 
       switch (type) {
       case SOCK_STREAM:
-        if ((ret = fork()) < 0) {
-          perror("fork failed");
-          exit(-1);
-        }
+        if ((ret = fork()) < 0)
+          Perror("fork failed");
         if (ret) {
           printf("child %d forked\n", ret);
           close(clifd);
