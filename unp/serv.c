@@ -43,7 +43,8 @@ void writen(int fd, char *b, int n) {
   }
 }
 
-void c_echo(int sockfd, int type) {
+void c_echo(int sockfd, int type, int udp_sendto, struct sockaddr *servaddr,
+            socklen_t socklen) {
   int nread;
   fd_set rfds;
 
@@ -64,7 +65,7 @@ void c_echo(int sockfd, int type) {
         perror("read failed");
         exit(-1);
       }
-      if (nread == 0 && type == SOCK_STREAM) {
+      if (!nread && type == SOCK_STREAM) {
         fprintf(stderr, "server terminated prematurely\n");
         exit(-1);
       }
@@ -78,10 +79,26 @@ void c_echo(int sockfd, int type) {
         perror("read failed");
         exit(-1);
       }
-      if (nread)
-        writen(sockfd, buf, nread);
-      else
+      if (!nread)
         return;
+      switch (type) {
+      case SOCK_STREAM:
+        writen(sockfd, buf, nread);
+        break;
+      case SOCK_DGRAM:
+        if (udp_sendto) {
+          if (sendto(sockfd, buf, nread, 0, servaddr, socklen) < 0) {
+            perror("sendto failed");
+            exit(-1);
+          }
+        } else {
+          if (write(sockfd, buf, nread) < 0) {
+            perror("write failed");
+            exit(-1);
+          }
+        }
+        break;
+      }
     }
   }
 }
@@ -108,7 +125,8 @@ void s_echo(int sockfd, int type, struct sockaddr *cliaddr, socklen_t socklen,
   }
 }
 
-void c_daytime(int sockfd, int type) {
+void c_daytime(int sockfd, int type, int udp_sendto, struct sockaddr *servaddr,
+               socklen_t socklen) {
   int nread;
 
   switch (type) {
@@ -117,12 +135,20 @@ void c_daytime(int sockfd, int type) {
       writen(STDOUT_FILENO, buf, nread);
     break;
   case SOCK_DGRAM:
-    if (write(sockfd, "", 1) < 0) {
-      perror("write failed");
-      exit(-1);
+    if (udp_sendto) {
+      if (sendto(sockfd, "", 1, 0, servaddr, socklen) < 0) {
+        perror("sendto failed");
+        exit(-1);
+      }
+    } else {
+      if (write(sockfd, "", 1) < 0) {
+        perror("write failed");
+        exit(-1);
+      }
     }
-    if ((nread = read(sockfd, buf, sizeof(buf))) > 0)
-      writen(STDOUT_FILENO, buf, nread);
+    while ((nread = read(sockfd, buf, sizeof(buf))) >= 0)
+      if (nread)
+        writen(STDOUT_FILENO, buf, nread);
     break;
   }
   if (nread < 0) {
@@ -167,8 +193,8 @@ void sig_chld(int signo) {
 }
 
 int main(int argc, char **argv) {
-  int sockfd, clifd, domain = AF_UNIX, type = SOCK_STREAM, backlog = 5,
-                     mcast = 0, nread, ret;
+  int sockfd, clifd, domain = AF_UNIX, type = SOCK_STREAM, udp_sendto, bcast,
+                     mcast = 0, backlog = 5, nread, ret;
   short port = 0;
   const char *address = NULL, *interface = NULL;
   struct addrinfo hints, *rai;
@@ -183,13 +209,13 @@ int main(int argc, char **argv) {
   struct ipv6_mreq imr6;
   enum { c_mode, s_mode } mode = c_mode;
   enum { e_serv, d_serv } serv = d_serv;
-  void (*cf)(int, int);
+  void (*cf)(int, int, int, struct sockaddr *, socklen_t);
   void (*sf)(int, int, struct sockaddr *, socklen_t, int);
 
-  while ((ret = getopt(argc, argv, "hTU4::6::u::p:m::b:csed")) > 0) {
+  while ((ret = getopt(argc, argv, "hTU::4::6::u::p:m::b:csed")) > 0) {
     switch (ret) {
     case 'h':
-      printf("usage: %s [-h] [-TU] [-46u[ADDRESS]] [-p PORT] "
+      printf("usage: %s [-h] [-TU[SB]] [-46u[ADDRESS]] [-p PORT] "
              "[-m[INTERFACE]] [-b BACKLOG] [-cs] [-ed]\n",
              argv[0]);
       exit(1);
@@ -199,6 +225,15 @@ int main(int argc, char **argv) {
       break;
     case 'U':
       type = SOCK_DGRAM;
+      if (optarg) {
+        udp_sendto = 1;
+        if (*optarg == 'B')
+          bcast = 1;
+        else
+          bcast = 0;
+      } else {
+        udp_sendto = 0;
+      }
       break;
     case '4':
       domain = AF_INET;
@@ -340,12 +375,24 @@ int main(int argc, char **argv) {
       }
     }
 
+    if (type == SOCK_DGRAM && udp_sendto) {
+      ret = 1;
+      if (bcast &&
+          setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &ret, sizeof(ret)) < 0) {
+        perror("setsockopt SO_BROADCAST failed");
+        exit(-1);
+      }
+      goto skipconnect;
+    }
+
     if (connect(sockfd, (struct sockaddr *)&servaddr, socklen) < 0) {
       perror("connect failed");
       exit(-1);
     }
 
-    cf(sockfd, type);
+  skipconnect:
+
+    cf(sockfd, type, udp_sendto, (struct sockaddr *)&servaddr, socklen);
 
     close(sockfd);
 
@@ -447,8 +494,7 @@ int main(int argc, char **argv) {
           perror("inet_ntop failed");
           exit(-1);
         }
-        printf("client address %s, port %d\n", ntopbuf,
-               (unsigned short)port);
+        printf("client address %s, port %d\n", ntopbuf, (unsigned short)port);
         break;
       case AF_INET6:
         port = ntohs(cliaddr.a6.sin6_port);
@@ -457,8 +503,7 @@ int main(int argc, char **argv) {
           perror("inet_ntop failed");
           exit(-1);
         }
-        printf("client address %s, port %d\n", ntopbuf,
-               (unsigned short)port);
+        printf("client address %s, port %d\n", ntopbuf, (unsigned short)port);
         break;
       case AF_UNIX:
         printf("client address %s\n", cliaddr.un.sun_path);
