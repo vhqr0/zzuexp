@@ -169,7 +169,7 @@ void sig_chld(int signo) {
 int main(int argc, char **argv) {
   int sockfd, clifd, domain = AF_UNIX, type = SOCK_STREAM, backlog = 5,
                      mcast = 0, nread, ret;
-  short port = 0, cliport;
+  short port = 0;
   const char *address = NULL, *interface = NULL;
   struct addrinfo hints, *rai;
   union {
@@ -439,34 +439,30 @@ int main(int argc, char **argv) {
         break;
       }
 
-      switch (((struct sockaddr *)&cliaddr)->sa_family) {
+      switch (domain) {
       case AF_INET:
-        cliport = ntohs(cliaddr.a4.sin_port);
+        port = ntohs(cliaddr.a4.sin_port);
         if (!inet_ntop(AF_INET, &cliaddr.a4.sin_addr, ntopbuf,
                        sizeof(ntopbuf))) {
           perror("inet_ntop failed");
           exit(-1);
         }
         printf("client address %s, port %d\n", ntopbuf,
-               (unsigned short)cliport);
+               (unsigned short)port);
         break;
       case AF_INET6:
-        cliport = ntohs(cliaddr.a6.sin6_port);
+        port = ntohs(cliaddr.a6.sin6_port);
         if (!inet_ntop(AF_INET6, &cliaddr.a6.sin6_addr, ntopbuf,
                        sizeof(ntopbuf))) {
           perror("inet_ntop failed");
           exit(-1);
         }
         printf("client address %s, port %d\n", ntopbuf,
-               (unsigned short)cliport);
+               (unsigned short)port);
         break;
       case AF_UNIX:
         printf("client address %s\n", cliaddr.un.sun_path);
         break;
-      default:
-        fprintf(stderr, "unknown address family: %d\n",
-                ((struct sockaddr *)&cliaddr)->sa_family);
-        exit(-1);
       }
 
       switch (type) {
