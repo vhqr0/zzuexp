@@ -100,20 +100,22 @@ void Addrinfo(const char *address, void *addr) {
   freeaddrinfo(rai);
 }
 
-int Bcastcheck(int fd, void *addr) {
-  int on = 1, ret = 0;
+int Bcastcheck(int fd, void *addr, int checkonly) {
+  int on = 1;
+  
   if (((struct sockaddr *)addr)->sa_family == AF_INET &&
       ((struct sockaddr_in *)addr)->sin_addr.s_addr ==
           htonl(INADDR_BROADCAST)) {
+    if (checkonly)
+      return 1;
     if (setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on)) < 0)
       Perror("setsockopt SO_BROADCAST failed");
-    ret = 1;
+    return 1;
   }
-  return ret;
+  return 0;
 }
 
 int Mcastcheck(int fd, void *addr, const char *interface, int checkonly) {
-  int ret;
   struct ifreq ifr;
   struct ip_mreq imr4;
   struct ipv6_mreq imr6;
@@ -326,7 +328,6 @@ void s_daytime(int sockfd, int type, struct sockaddr *cliaddr,
 
 void sig_chld(int signo) {
   int pid, stat;
-
   while ((pid = waitpid(-1, &stat, WNOHANG)) > 0)
     printf("child %d terminated\n", pid);
 }
@@ -342,7 +343,7 @@ int main(int argc, char **argv) {
     struct sockaddr_un un;
   } servaddr, cliaddr;
   socklen_t socklen;
-  enum { c_mode, s_mode } mode = c_mode;
+  enum { c_mode, s_mode } mode = s_mode;
   enum { e_serv, d_serv } serv = d_serv;
   void (*cf)(int, int, int, struct sockaddr *, socklen_t);
   void (*sf)(int, int, struct sockaddr *, socklen_t, int);
@@ -456,7 +457,7 @@ int main(int argc, char **argv) {
         Perror("bind failed");
     }
 
-    if (Bcastcheck(sockfd, &servaddr) || Mcastcheck(sockfd, &servaddr, NULL, 1))
+    if (Bcastcheck(sockfd, &servaddr, 0) || Mcastcheck(sockfd, &servaddr, NULL, 1))
       udp_sendto = 1;
 
     if (type == SOCK_DGRAM && udp_sendto)
@@ -523,6 +524,7 @@ int main(int argc, char **argv) {
           close(clifd);
           continue;
         }
+        close(sockfd);
         sf(clifd, SOCK_STREAM, NULL, 0, 0);
         close(clifd);
         exit(0);

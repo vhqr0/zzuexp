@@ -49,23 +49,21 @@ if mode == 'client':
         sockfd.sendto(b'\x00', endpoint)
         while True:
             buf, servendpoint = sockfd.recvfrom(4096)
-            print(f'recvfrom {servendpoint[0]}, port {servendpoint[1]}: ',
-                  end='')
-            sys.stdout.flush()
+            sys.stdout.buffer.write(
+                f'recvfrom {servendpoint[0]}, port {servendpoint[1]}: '\
+                .encode())
             sys.stdout.buffer.write(buf)
             sys.stdout.flush()
     sockfd.close()
 else:
     if family == socket.AF_INET:
-        addr = ipaddress.IPv4Address(endpoint[0])
-        if addr.is_multicast:
+        if ipaddress.IPv4Address(endpoint[0]).is_multicast:
             sockfd.setsockopt(
                 socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
                 socket.inet_pton(socket.AF_INET, endpoint[0]) + b'\x00' * 4)
             endpoint = ('', endpoint[1])
     elif family == socket.AF_INET6:
-        addr = ipaddress.IPv6Address(endpoint[0])
-        if addr.is_multicast:
+        if ipaddress.IPv6Address(endpoint[0]).is_multicast:
             sockfd.setsockopt(
                 socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP,
                 socket.inet_pton(socket.AF_INET6, endpoint[0]) + b'\x00' * 16)
