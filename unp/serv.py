@@ -50,8 +50,8 @@ if mode == 'client':
         while True:
             buf, servendpoint = sockfd.recvfrom(4096)
             sys.stdout.buffer.write(
-                f'recvfrom {servendpoint[0]}, port {servendpoint[1]}: '\
-                .encode())
+                f'recvfrom {servendpoint[0]}, port {servendpoint[1]}: '.encode(
+                ))
             sys.stdout.buffer.write(buf)
             sys.stdout.flush()
     sockfd.close()
