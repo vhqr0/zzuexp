@@ -235,17 +235,6 @@ int main(int argc, char **argv) {
     }
   }
 
-  /* TODO: set socket hoplimit to 255 */
-  /* if (arping) { */
-  /*   ret = 255; */
-  /*   if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_HOPLIMIT, &ret, sizeof(ret)) <
-   */
-  /*   0) { */
-  /*     perror("setsockopt IPV6_HOPLIMIT failed"); */
-  /*     exit(-1); */
-  /*   } */
-  /* } */
-
   ICMP6_FILTER_SETBLOCKALL(&filter);
   if (arping)
     ICMP6_FILTER_SETPASS(ND_NEIGHBOR_ADVERT, &filter);
