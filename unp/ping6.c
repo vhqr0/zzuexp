@@ -1,4 +1,5 @@
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,7 +17,7 @@
 
 #define BUFSIZE 1500
 
-char *buf[BUFSIZE], ntopbuf[INET6_ADDRSTRLEN];
+char buf[BUFSIZE], cbuf[BUFSIZE], ntopbuf[INET6_ADDRSTRLEN];
 struct icmp6_hdr *icmp6hdr = (struct icmp6_hdr *)buf;
 struct nd_neighbor_solicit *ns = (struct nd_neighbor_solicit *)buf;
 struct nd_neighbor_advert *na = (struct nd_neighbor_advert *)buf;
@@ -46,16 +47,26 @@ void send_echoreq() {
 }
 
 void recv_echorep() {
-  int nread;
+  int nread, hlim = -1;
   double rtt;
   struct timeval tv;
   struct sockaddr_in6 src;
-  socklen_t socklen;
+  struct iovec iov;
+  struct msghdr msg;
+  struct cmsghdr *cmsg;
 
-  socklen = sizeof(src);
-  if ((nread = recvfrom(sockfd, buf, sizeof(buf), 0, (struct sockaddr *)&src,
-                        &socklen)) < 0) {
-    perror("recvfrom failed");
+  memset(&msg, 0, sizeof(msg));
+  iov.iov_base = buf;
+  iov.iov_len = sizeof(buf);
+  msg.msg_name = &src;
+  msg.msg_namelen = sizeof(src);
+  msg.msg_iov = &iov;
+  msg.msg_iovlen = 1;
+  msg.msg_control = cbuf;
+  msg.msg_controllen = sizeof(cbuf);
+
+  if ((nread = recvmsg(sockfd, &msg, 0)) < 0) {
+    perror("recvmsg failed");
     exit(-1);
   }
   if (nread != sizeof(struct icmp6_hdr) + sizeof(struct timeval) + length ||
@@ -65,6 +76,13 @@ void recv_echorep() {
     perror("inet_ntop failed");
     exit(-1);
   }
+  for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL;
+       cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+    if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_HOPLIMIT) {
+      hlim = *(uint32_t *)CMSG_DATA(cmsg);
+      break;
+    }
+  }
   if (gettimeofday(&tv, NULL) < 0) {
     perror("gettimeofday failed");
     exit(-1);
@@ -72,17 +90,41 @@ void recv_echorep() {
   rtt = (tv.tv_sec) * 1000.0 + (tv.tv_usec) / 1000.0 -
         (((struct timeval *)(icmp6hdr + 1))->tv_sec) * 1000.0 -
         (((struct timeval *)(icmp6hdr + 1))->tv_usec) / 1000.0;
-  printf("recvfrom %s, %d bytes, seq: %d, rtt: %lfms\n", ntopbuf,
-         (int)sizeof(struct timeval) + length, icmp6hdr->icmp6_seq, rtt);
+  printf("recvfrom %s, %d bytes, seq: %d, rtt: %lfms, hlim: %d\n", ntopbuf,
+         (int)sizeof(struct timeval) + length, icmp6hdr->icmp6_seq, rtt, hlim);
 }
 
 void send_ns() {
+  struct iovec iov;
+  struct msghdr msg;
+  struct cmsghdr *cmsg;
+  uint32_t hlim = 255;
+  union {
+    char buf[CMSG_SPACE(4)];
+    struct cmsghdr align;
+  } u;
+
   memset(buf, 0, sizeof(buf));
   ns->nd_ns_type = ND_NEIGHBOR_SOLICIT;
   ns->nd_ns_target = tgt;
-  if (sendto(sockfd, buf, sizeof(struct nd_neighbor_solicit), 0,
-             (struct sockaddr *)&dst, sizeof(dst)) < 0) {
-    perror("sendto failed");
+
+  memset(&msg, 0, sizeof(msg));
+  iov.iov_base = buf;
+  iov.iov_len = sizeof(struct nd_neighbor_solicit);
+  msg.msg_name = &dst;
+  msg.msg_namelen = sizeof(dst);
+  msg.msg_iov = &iov;
+  msg.msg_iovlen = 1;
+  msg.msg_control = u.buf;
+  msg.msg_controllen = sizeof(u.buf);
+  cmsg = CMSG_FIRSTHDR(&msg);
+  cmsg->cmsg_level = IPPROTO_IPV6;
+  cmsg->cmsg_type = IPV6_HOPLIMIT;
+  cmsg->cmsg_len = CMSG_LEN(4);
+  memcpy(CMSG_DATA(cmsg), &hlim, 4);
+
+  if (sendmsg(sockfd, &msg, 0) < 0) {
+    perror("sendmsg failed");
     exit(-1);
   }
 }
@@ -193,9 +235,16 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (arping) {
-    /* TODO: set socket hoplimit to 255 */
-  }
+  /* TODO: set socket hoplimit to 255 */
+  /* if (arping) { */
+  /*   ret = 255; */
+  /*   if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_HOPLIMIT, &ret, sizeof(ret)) <
+   */
+  /*   0) { */
+  /*     perror("setsockopt IPV6_HOPLIMIT failed"); */
+  /*     exit(-1); */
+  /*   } */
+  /* } */
 
   ICMP6_FILTER_SETBLOCKALL(&filter);
   if (arping)
@@ -204,6 +253,13 @@ int main(int argc, char **argv) {
     ICMP6_FILTER_SETPASS(ICMP6_ECHO_REPLY, &filter);
   if (setsockopt(sockfd, IPPROTO_ICMPV6, ICMP6_FILTER, &filter,
                  sizeof(filter)) < 0) {
+    perror("setsockopt failed");
+    exit(-1);
+  }
+
+  ret = 1;
+  if (!arping && setsockopt(sockfd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &ret,
+                            sizeof(ret)) < 0) {
     perror("setsockopt failed");
     exit(-1);
   }
