@@ -133,6 +133,7 @@ void recv_na() {
   int nread;
   struct sockaddr_in6 src;
   socklen_t socklen;
+  uint8_t flag;
 
   socklen = sizeof(src);
   if ((nread = recvfrom(sockfd, buf, sizeof(buf), 0, (struct sockaddr *)&src,
@@ -147,7 +148,9 @@ void recv_na() {
     perror("inet_ntop failed");
     exit(-1);
   }
-  printf("recvfrom %s\n", ntopbuf);
+  flag = ns->nd_ns_hdr.icmp6_data8[0];
+  printf("recvfrom %s, r: %d, s: %d, o: %d\n", ntopbuf, !!(flag & 0x80),
+         !!(flag & 0x40), !!(flag & 0x20));
 }
 
 void sig_alrm(int signo) {
