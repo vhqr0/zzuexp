@@ -28,6 +28,7 @@ parser.add_argument('-6',
                     dest='family',
                     const=socket.AF_INET6)
 parser.add_argument('-a', '--arping', action='store_true', default=False)
+parser.add_argument('-i', '--interface')
 parser.add_argument('-l', '--length', type=int, default=64)
 parser.add_argument('address')
 args = parser.parse_args()
@@ -38,6 +39,7 @@ ep = socket.getaddrinfo(args.address,
                         family=family,
                         type=socket.SOCK_RAW)[0][-1]
 arping = args.arping
+interface = args.interface
 length = max(args.length - 8, 0)
 
 pid = os.getpid() & 0xffff
@@ -72,6 +74,9 @@ def cksum(buf):
 
 def ping4():
     sockfd = socket.socket(family, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+    if interface:
+        sockfd.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE,
+                          interface.encode())
     if ep[0] == '255.255.255.255':
         sockfd.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
@@ -110,6 +115,9 @@ def ping4():
 
 def ping6():
     sockfd = socket.socket(family, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
+    if interface:
+        sockfd.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE,
+                          interface.encode())
     pyping.filter_icmp6(sockfd.fileno(), ICMP6_ECHO_REPLY)
     sockfd.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_RECVHOPLIMIT, 1)
 
@@ -150,6 +158,9 @@ def ping6():
 
 def arping6():
     sockfd = socket.socket(family, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
+    if interface:
+        sockfd.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE,
+                          interface.encode())
     pyping.filter_icmp6(sockfd.fileno(), ND_NEIGHBOR_ADVERT)
 
     def send_ns():
@@ -168,7 +179,9 @@ def arping6():
     signal.alarm(1)
     while True:
         buf, rep = sockfd.recvfrom(4096)
-        print(f'recvfrom {rep[0]}')
+        flags = buf[4]
+        print(f'recvfrom {rep[0]}, r: {(flags & 0x80) >> 7}, '
+              f's: {(flags & 0x40) >> 6}, o: {(flags & 0x20) >> 5}')
 
 
 if family == socket.AF_INET:
