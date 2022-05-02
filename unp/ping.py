@@ -15,6 +15,8 @@ ICMP_ECHO = 8
 ICMP_ECHOREPLY = 0
 ICMP6_ECHO_REQUEST = 128
 ICMP6_ECHO_REPLY = 129
+ND_NEIGHBOR_SOLICIT = 135
+ND_NEIGHBOR_ADVERT = 136
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-4',
@@ -132,14 +134,12 @@ def ping6():
                                                     offset=4)
         if rid != pid or len(buf) != 16 + length:
             continue
-        hlim = -1
+        hlim = '???'
         for cmsg in cmsgs:
             if cmsg[0] == socket.IPPROTO_IPV6 and \
                cmsg[1] == socket.IPV6_HOPLIMIT:
                 hlim = int.from_bytes(cmsg[2], sys.byteorder)
                 break
-        else:
-            hlim = '???'
         sec, usec = gettimeofday()
         sec -= rsec
         usec -= rusec
@@ -148,10 +148,33 @@ def ping6():
               f' seq: {rseq}, rtt: {rtt}ms, hlim: {hlim}')
 
 
+def arping6():
+    sockfd = socket.socket(family, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
+    pyping.filter_icmp6(sockfd.fileno(), ND_NEIGHBOR_ADVERT)
+
+    def send_ns():
+        tgt = socket.inet_pton(socket.AF_INET6, ep[0])
+        _sep = b'\xff\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\xff' + \
+            tgt[-3:]
+        sep = (socket.inet_ntop(socket.AF_INET6, _sep), 0)
+        buf = struct.pack('!BBHI16s', ND_NEIGHBOR_SOLICIT, 0, 0, 0, tgt)
+        cmsg = [(socket.IPPROTO_IPV6, socket.IPV6_HOPLIMIT,
+                 struct.pack('@I', 255))]
+        sockfd.sendmsg([buf], cmsg, 0, sep)
+        signal.alarm(1)
+
+    signal.signal(signal.SIGALRM, lambda _no, _f: send_ns())
+    signal.signal(signal.SIGINT, lambda _no, _f: sys.exit(0))
+    signal.alarm(1)
+    while True:
+        buf, rep = sockfd.recvfrom(4096)
+        print(f'recvfrom {rep[0]}')
+
+
 if family == socket.AF_INET:
     ping4()
 elif family == socket.AF_INET6:
     if arping:
-        pass
+        arping6()
     else:
         ping6()
