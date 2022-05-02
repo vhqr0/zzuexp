@@ -4,6 +4,7 @@ import argparse
 import ipaddress
 import signal
 import socket
+import struct
 import sys
 import time
 
@@ -79,8 +80,8 @@ def client():
 
 
 def server():
-    servep = ep
     sockfd = socket.socket(family, socktype)
+    servep = ep
     if family == socket.AF_INET:
         if ipaddress.IPv4Address(ep[0]).is_multicast:
             sockfd.setsockopt(
@@ -91,7 +92,8 @@ def server():
         if ipaddress.IPv6Address(ep[0]).is_multicast:
             sockfd.setsockopt(
                 socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP,
-                socket.inet_pton(socket.AF_INET6, ep[0]) + b'\x00' * 16)
+                socket.inet_pton(socket.AF_INET6, ep[0]) +
+                struct.pack('@i', 0))
             servep = ('', ep[1])
     sockfd.bind(servep)
     if socktype == socket.SOCK_STREAM:

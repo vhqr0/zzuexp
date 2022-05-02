@@ -166,6 +166,13 @@ int main(int argc, char **argv) {
     exit(-1);
   }
 
+  ret = 1;
+  if (dst.sin_addr.s_addr == htonl(INADDR_BROADCAST) &&
+      setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &ret, sizeof(ret))) {
+    perror("setsockopt SO_BROADCAST failed");
+    exit(-1);
+  }
+
   if (interface) {
     memset(&ifr, 0, sizeof(ifr));
     strncpy(ifr.ifr_name, interface, IFNAMSIZ);
