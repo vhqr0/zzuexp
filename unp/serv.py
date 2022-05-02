@@ -7,28 +7,46 @@ import socket
 import sys
 import time
 
-parser = argparse.ArgumentParser()
-parser.add_argument('-c', action='store_const', dest='mode', const='client')
-parser.add_argument('-s', action='store_const', dest='mode', const='server')
+parser = argparse.ArgumentParser(
+    description='Daytime Server&Client, by IPv4&IPv6, TCP&UDP.',
+    usage='%(prog)s [-h] [-cs] [-46] [-UT] [-p PORT] [t TIMEOUT] ADDRESS')
+parser.add_argument('-c',
+                    action='store_const',
+                    dest='mode',
+                    const='client',
+                    help='Mode: Client')
+parser.add_argument('-s',
+                    action='store_const',
+                    dest='mode',
+                    const='server',
+                    help='Mode: Server')
 parser.add_argument('-4',
                     action='store_const',
                     dest='family',
-                    const=socket.AF_INET)
+                    const=socket.AF_INET,
+                    help='Family: IPv4')
 parser.add_argument('-6',
                     action='store_const',
                     dest='family',
-                    const=socket.AF_INET6)
+                    const=socket.AF_INET6,
+                    help='Family: IPv6')
 parser.add_argument('-U',
                     action='store_const',
                     dest='socktype',
-                    const=socket.SOCK_DGRAM)
+                    const=socket.SOCK_DGRAM,
+                    help='Type: UDP')
 parser.add_argument('-T',
                     action='store_const',
                     dest='socktype',
-                    const=socket.SOCK_STREAM)
-parser.add_argument('-p', '--port', default='13')
-parser.add_argument('-t', '--timeout', type=int, default=1)
-parser.add_argument('address')
+                    const=socket.SOCK_STREAM,
+                    help='Type: TCP')
+parser.add_argument('-p', '--port', default='13', help='TCP|UDP Port')
+parser.add_argument('-t',
+                    '--timeout',
+                    type=int,
+                    default=1,
+                    help='UDP Client Timeout')
+parser.add_argument('address', help='IP Address')
 args = parser.parse_args()
 
 mode = args.mode or 'server'
