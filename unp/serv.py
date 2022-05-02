@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import fcntl
 import ipaddress
 import signal
 import socket
@@ -8,9 +9,13 @@ import struct
 import sys
 import time
 
+SIOCGIFADDR = 0x8915
+SIOCGIFADDR_SLICE = (20, 24)
+
 parser = argparse.ArgumentParser(
     description='Daytime Server&Client, by IPv4&IPv6, TCP&UDP.',
-    usage='%(prog)s [-h] [-cs] [-46] [-UT] [-p PORT] [t TIMEOUT] ADDRESS')
+    usage='%(prog)s [-h] [-cs] [-46] [-UT] [-p PORT]'
+    ' [-i INTERFACE] [-t TIMEOUT] ADDRESS')
 parser.add_argument('-c',
                     action='store_const',
                     dest='mode',
@@ -42,6 +47,7 @@ parser.add_argument('-T',
                     const=socket.SOCK_STREAM,
                     help='Type: TCP')
 parser.add_argument('-p', '--port', default='13', help='TCP|UDP Port')
+parser.add_argument('-i', '--interface', help='Interface')
 parser.add_argument('-t',
                     '--timeout',
                     type=int,
@@ -55,6 +61,7 @@ family = args.family or socket.AF_INET
 socktype = args.socktype or socket.SOCK_DGRAM
 ep = socket.getaddrinfo(args.address, args.port, family=family,
                         type=socktype)[0][-1]
+interface = args.interface
 timeout = args.timeout
 
 
@@ -84,16 +91,25 @@ def server():
     servep = ep
     if family == socket.AF_INET:
         if ipaddress.IPv4Address(ep[0]).is_multicast:
-            sockfd.setsockopt(
-                socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                socket.inet_pton(socket.AF_INET, ep[0]) + b'\x00' * 4)
+            ifaddr = b'\x00\x00\x00\x00'
+            if interface:
+                ifaddr = fcntl.ioctl(
+                    sockfd, SIOCGIFADDR,
+                    struct.pack('64s',
+                                interface.encode()))[SIOCGIFADDR_SLICE[0],
+                                                     SIOCGIFADDR_SLICE[1]]
+            sockfd.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                              socket.inet_pton(socket.AF_INET, ep[0]) + ifaddr)
             servep = ('', ep[1])
     elif family == socket.AF_INET6:
         if ipaddress.IPv6Address(ep[0]).is_multicast:
+            ifindex = 0
+            if interface:
+                ifindex = socket.if_nametoindex(interface)
             sockfd.setsockopt(
                 socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP,
                 socket.inet_pton(socket.AF_INET6, ep[0]) +
-                struct.pack('@i', 0))
+                struct.pack('@i', ifindex))
             servep = ('', ep[1])
     sockfd.bind(servep)
     if socktype == socket.SOCK_STREAM:
