@@ -245,7 +245,7 @@ int main(int argc, char **argv) {
     ICMP6_FILTER_SETPASS(ICMP6_ECHO_REPLY, &filter);
   if (setsockopt(sockfd, IPPROTO_ICMPV6, ICMP6_FILTER, &filter,
                  sizeof(filter)) < 0) {
-    perror("setsockopt failed");
+    perror("setsockopt ICMP6_FILTER failed");
     exit(-1);
   }
 
