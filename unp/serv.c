@@ -100,6 +100,17 @@ void Addrinfo(const char *address, void *addr) {
   freeaddrinfo(rai);
 }
 
+void Bindtodevice(int fd, const char *interface) {
+  struct ifreq ifr;
+
+  if (!interface)
+    return;
+  memset(&ifr, 0, sizeof(ifr));
+  strncpy(ifr.ifr_name, interface, IFNAMSIZ);
+  if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr)) < 0)
+    Perror("setsockopt SO_BINDTODEVICE failed");
+}
+
 int Bcastcheck(int fd, void *addr, int checkonly) {
   int on = 1;
   
@@ -456,6 +467,8 @@ int main(int argc, char **argv) {
       if (bind(sockfd, (struct sockaddr *)&cliaddr, socklen) < 0)
         Perror("bind failed");
     }
+
+    Bindtodevice(sockfd, interface);
 
     if (Bcastcheck(sockfd, &servaddr, 0) || Mcastcheck(sockfd, &servaddr, NULL, 1))
       udp_sendto = 1;

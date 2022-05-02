@@ -67,6 +67,9 @@ timeout = args.timeout
 
 def client():
     sockfd = socket.socket(family, socktype)
+    if interface:
+        sockfd.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE,
+                          interface.encode())
     if socktype == socket.SOCK_STREAM:
         sockfd.connect(ep)
         sys.stdout.buffer.write(sockfd.recv(4096))
