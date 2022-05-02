@@ -37,7 +37,7 @@ void send_echoreq() {
     exit(-1);
   }
   if (length)
-    memset(buf + sizeof(struct icmp6_hdr) + sizeof(struct timeval), 0, length);
+    memset(buf + sizeof(struct icmp6_hdr) + sizeof(struct timeval), 0xa5, length);
   if (sendto(sockfd, buf,
              sizeof(struct icmp6_hdr) + sizeof(struct timeval) + length, 0,
              (struct sockaddr *)&dst, sizeof(dst)) < 0) {
@@ -171,7 +171,7 @@ int main(int argc, char **argv) {
   while ((ret = getopt(argc, argv, "hi:l:a")) > 0) {
     switch (ret) {
     case 'h':
-      printf("usage: %s [-h] [-l LENGTH] [-a] ADDRESS\n", argv[0]);
+      printf("usage: %s [-h] [-i interface] [-l LENGTH] [-a] ADDRESS\n", argv[0]);
       exit(1);
       break;
     case 'i':
