@@ -97,9 +97,9 @@ void recv_echorep() {
     perror("gettimeofday failed");
     exit(-1);
   }
-  rtt = (tv.tv_sec) * 1000.0 + (tv.tv_usec) / 1000.0 -
-        ((struct timeval *)(icmphdr + 1))->tv_sec * 1000.0 -
-        ((struct timeval *)(icmphdr + 1))->tv_usec / 1000.0;
+  tv.tv_sec -= ((struct timeval *)(icmphdr + 1))->tv_sec;
+  tv.tv_usec -= ((struct timeval *)(icmphdr + 1))->tv_usec;
+  rtt = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
   printf("recvfrom %s, %d bytes, seq: %d, rtt: %lfms, ttl: %d\n", ntopbuf,
          (int)sizeof(struct timeval) + length, icmphdr->un.echo.sequence, rtt,
          ttl);
