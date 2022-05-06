@@ -37,7 +37,8 @@ void send_echoreq() {
     exit(-1);
   }
   if (length)
-    memset(buf + sizeof(struct icmp6_hdr) + sizeof(struct timeval), 0xa5, length);
+    memset(buf + sizeof(struct icmp6_hdr) + sizeof(struct timeval), 0xa5,
+           length);
   if (sendto(sockfd, buf,
              sizeof(struct icmp6_hdr) + sizeof(struct timeval) + length, 0,
              (struct sockaddr *)&dst, sizeof(dst)) < 0) {
@@ -95,36 +96,42 @@ void recv_echorep() {
 }
 
 void send_ns() {
-  struct iovec iov;
-  struct msghdr msg;
-  struct cmsghdr *cmsg;
-  uint32_t hlim = 255;
-  union {
-    char buf[CMSG_SPACE(4)];
-    struct cmsghdr align;
-  } u;
+  /* struct iovec iov; */
+  /* struct msghdr msg; */
+  /* struct cmsghdr *cmsg; */
+  /* uint32_t hlim = 255; */
+  /* union { */
+  /*   char buf[CMSG_SPACE(4)]; */
+  /*   struct cmsghdr align; */
+  /* } u; */
+
+  /* memset(&msg, 0, sizeof(msg)); */
+  /* iov.iov_base = buf; */
+  /* iov.iov_len = sizeof(struct nd_neighbor_solicit); */
+  /* msg.msg_name = &dst; */
+  /* msg.msg_namelen = sizeof(dst); */
+  /* msg.msg_iov = &iov; */
+  /* msg.msg_iovlen = 1; */
+  /* msg.msg_control = u.buf; */
+  /* msg.msg_controllen = sizeof(u.buf); */
+  /* cmsg = CMSG_FIRSTHDR(&msg); */
+  /* cmsg->cmsg_level = IPPROTO_IPV6; */
+  /* cmsg->cmsg_type = IPV6_HOPLIMIT; */
+  /* cmsg->cmsg_len = CMSG_LEN(4); */
+  /* memcpy(CMSG_DATA(cmsg), &hlim, 4); */
+
+  /* if (sendmsg(sockfd, &msg, 0) < 0) { */
+  /*   perror("sendmsg failed"); */
+  /*   exit(-1); */
+  /* } */
 
   memset(buf, 0, sizeof(buf));
   ns->nd_ns_type = ND_NEIGHBOR_SOLICIT;
   ns->nd_ns_target = tgt;
 
-  memset(&msg, 0, sizeof(msg));
-  iov.iov_base = buf;
-  iov.iov_len = sizeof(struct nd_neighbor_solicit);
-  msg.msg_name = &dst;
-  msg.msg_namelen = sizeof(dst);
-  msg.msg_iov = &iov;
-  msg.msg_iovlen = 1;
-  msg.msg_control = u.buf;
-  msg.msg_controllen = sizeof(u.buf);
-  cmsg = CMSG_FIRSTHDR(&msg);
-  cmsg->cmsg_level = IPPROTO_IPV6;
-  cmsg->cmsg_type = IPV6_HOPLIMIT;
-  cmsg->cmsg_len = CMSG_LEN(4);
-  memcpy(CMSG_DATA(cmsg), &hlim, 4);
-
-  if (sendmsg(sockfd, &msg, 0) < 0) {
-    perror("sendmsg failed");
+  if (sendto(sockfd, buf, sizeof(struct nd_neighbor_solicit), 0,
+             (struct sockaddr *)&dst, sizeof(dst)) < 0) {
+    perror("sendto failed");
     exit(-1);
   }
 }
@@ -171,7 +178,8 @@ int main(int argc, char **argv) {
   while ((ret = getopt(argc, argv, "hi:l:a")) > 0) {
     switch (ret) {
     case 'h':
-      printf("usage: %s [-h] [-i interface] [-l LENGTH] [-a] ADDRESS\n", argv[0]);
+      printf("usage: %s [-h] [-i interface] [-l LENGTH] [-a] ADDRESS\n",
+             argv[0]);
       exit(1);
       break;
     case 'i':
@@ -252,7 +260,14 @@ int main(int argc, char **argv) {
   ret = 1;
   if (!arping && setsockopt(sockfd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &ret,
                             sizeof(ret)) < 0) {
-    perror("setsockopt failed");
+    perror("setsockopt IPV6_RECVHOPLIMIT failed");
+    exit(-1);
+  }
+
+  ret = 255;
+  if (arping && setsockopt(sockfd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &ret,
+                           sizeof(ret)) < 0) {
+    perror("setsockopt IPV6_MULTICAST_HOPS failed");
     exit(-1);
   }
 
