@@ -162,6 +162,7 @@ def arping6():
         sockfd.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE,
                           interface.encode())
     pyping.filter_icmp6(sockfd.fileno(), ND_NEIGHBOR_ADVERT)
+    sockfd.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 255)
 
     def send_ns():
         tgt = socket.inet_pton(socket.AF_INET6, ep[0])
@@ -169,9 +170,10 @@ def arping6():
             tgt[-3:]
         sep = (socket.inet_ntop(socket.AF_INET6, _sep), 0)
         buf = struct.pack('!BBHI16s', ND_NEIGHBOR_SOLICIT, 0, 0, 0, tgt)
-        cmsg = [(socket.IPPROTO_IPV6, socket.IPV6_HOPLIMIT,
-                 struct.pack('@I', 255))]
-        sockfd.sendmsg([buf], cmsg, 0, sep)
+        # cmsg = [(socket.IPPROTO_IPV6, socket.IPV6_HOPLIMIT,
+        #          struct.pack('@I', 255))]
+        # sockfd.sendmsg([buf], cmsg, 0, sep)
+        sockfd.sendto(buf, sep)
         signal.alarm(1)
 
     signal.signal(signal.SIGALRM, lambda _no, _f: send_ns())
