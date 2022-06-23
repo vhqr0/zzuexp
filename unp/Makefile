@@ -1,4 +1,4 @@
-all: serv checkopts checkifs ping4 ping6 pyping.so
+all: serv checkopts checkifs ping4 ping6
 
 serv: serv.c
 	gcc serv.c -O2 -o serv

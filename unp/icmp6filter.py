@@ -36,4 +36,4 @@ class ICMP6Filter:
 
     def setsockopt(self, sock):
         sock.setsockopt(socket.IPPROTO_ICMPV6, SO_ICMP6_FILTER,
-                        struct.pack('@IIIIIIII', *self.f))
+                        struct.pack('@8I', *self.f))
