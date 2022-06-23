@@ -9,14 +9,10 @@ import socket
 import sys
 import time
 
-import pyping
+from icmp6filter import ICMP6Filter, ICMP6_ECHOREQ, ICMP6_ECHOREP, ICMP6ND_NS, ICMP6ND_NA
 
 ICMP_ECHO = 8
 ICMP_ECHOREPLY = 0
-ICMP6_ECHO_REQUEST = 128
-ICMP6_ECHO_REPLY = 129
-ND_NEIGHBOR_SOLICIT = 135
-ND_NEIGHBOR_ADVERT = 136
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-4',
@@ -118,14 +114,16 @@ def ping6():
     if interface:
         sockfd.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE,
                           interface.encode())
-    pyping.filter_icmp6(sockfd.fileno(), ICMP6_ECHO_REPLY)
+    icmp6f = ICMP6Filter()
+    icmp6f.setblockall()
+    icmp6f.setpass(ICMP6_ECHOREP)
+    icmp6f.setsockopt(sockfd)
     sockfd.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_RECVHOPLIMIT, 1)
 
     def send_ping6():
         global seq
         sec, usec = gettimeofday()
-        buf = struct.pack('!BBHHHII', ICMP6_ECHO_REQUEST, 0, 0, pid, seq, sec,
-                          usec)
+        buf = struct.pack('!BBHHHII', ICMP6_ECHOREQ, 0, 0, pid, seq, sec, usec)
         seq += 1
         if length:
             buf += b'\xa5' * length
@@ -161,7 +159,10 @@ def arping6():
     if interface:
         sockfd.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE,
                           interface.encode())
-    pyping.filter_icmp6(sockfd.fileno(), ND_NEIGHBOR_ADVERT)
+    icmp6f = ICMP6Filter()
+    icmp6f.setblockall()
+    icmp6f.setpass(ICMP6ND_NA)
+    icmp6f.setsockopt(sockfd)
     sockfd.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 255)
 
     def send_ns():
@@ -169,7 +170,7 @@ def arping6():
         _sep = b'\xff\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\xff' + \
             tgt[-3:]
         sep = (socket.inet_ntop(socket.AF_INET6, _sep), 0)
-        buf = struct.pack('!BBHI16s', ND_NEIGHBOR_SOLICIT, 0, 0, 0, tgt)
+        buf = struct.pack('!BBHI16s', ICMP6ND_NS, 0, 0, 0, tgt)
         # cmsg = [(socket.IPPROTO_IPV6, socket.IPV6_HOPLIMIT,
         #          struct.pack('@I', 255))]
         # sockfd.sendmsg([buf], cmsg, 0, sep)

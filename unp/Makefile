@@ -14,6 +14,3 @@ ping4: ping4.c
 
 ping6: ping6.c
 	gcc ping6.c -O2 -o ping6
-
-pyping.so: pypingmodule.c
-	gcc -fPIC -shared pypingmodule.c -O2 -o pyping.so

@@ -1,7 +1,6 @@
-/c_include_path.sh
+/__pycache__
 /serv
 /checkopts
 /checkifs
 /ping4
 /ping6
-/pyping.so
