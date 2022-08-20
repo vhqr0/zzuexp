@@ -9,7 +9,7 @@ import socket
 import sys
 import time
 
-from icmp6filter import ICMP6Filter, ICMP6_ECHOREQ, ICMP6_ECHOREP, ICMP6ND_NS, ICMP6ND_NA
+from icmp6filter import *
 
 ICMP_ECHO = 8
 ICMP_ECHOREPLY = 0
