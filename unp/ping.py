@@ -60,7 +60,7 @@ def cksum(buf):
         c += 2
 
     if c + 1 == len(buf):
-        s += ord(buf[c]) << 8
+        s += buf[c] << 8
 
     s &= 0xffffffff
     s = (s >> 16) + (s & 0xffff)
