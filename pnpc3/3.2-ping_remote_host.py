@@ -72,7 +72,7 @@ class Pinger:
             addr, rtt = res
             print(f'Ping-Pong from {addr}, seq={seq}, rtt={rtt}s')
         else:
-            print('Ping timeout')
+            print(f'Ping timeout, seq={seq}')
 
     def ping(self):
         for seq in range(self.count):
