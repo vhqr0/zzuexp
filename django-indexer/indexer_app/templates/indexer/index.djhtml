@@ -1,0 +1,15 @@
+{% extends "./base.djhtml" %}
+
+{% block body %}
+
+    <h1>Most Viewed Pages:</h1>
+
+    <ul>
+        {% for page in pages %}
+            <li><a href="{{ page.url }}">[{{ page.category }}] {{ page.title }}</a></li>
+        {% empty %}
+            <li>Sorry, no pages are available.</li>
+        {% endfor %}
+    </ul>
+
+{% endblock %}

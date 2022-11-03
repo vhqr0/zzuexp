@@ -1,0 +1,5 @@
+{% extends "./base.djhtml" %}
+
+{% block body %}
+    <p>hello from about</p>
+{% endblock %}

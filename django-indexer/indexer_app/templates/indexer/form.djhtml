@@ -1,0 +1,15 @@
+{% extends "./base.djhtml" %}
+
+{% block body %}
+
+    <form action="{{ request.get_full_path }}" method="POST"
+          {% if enctype %} enctype="{{ enctype }}" {% endif %}>
+        {% csrf_token %}
+        <fieldset>
+            <legend><h1>{{ legend }}</h1></legend>
+            {{ form }}
+        </fieldset>
+        <input type="submit" />
+    </form>
+
+{% endblock %}

@@ -1,0 +1,25 @@
+<h2>TOP Categories</h2>
+
+<h3>Most Liked:</h3>
+<nav>
+    <ul>
+        {% for category in categories_likes %}
+            <li><a href="{% url 'indexer:category-detail' category.pk %}">{{ category.name }}</a></li>
+        {% empty %}
+            <li>Sorry, no categories are available.</li>
+        {% endfor %}
+    </ul>
+</nav>
+
+<h3>Most Viewd:</h3>
+<nav>
+    <ul>
+        {% for category in categories_views %}
+            <li><a href="{% url 'indexer:category-detail' category.pk %}">{{ category.name }}</a></li>
+        {% empty %}
+            <li>Sorry, no categories are available.</li>
+        {% endfor %}
+    </ul>
+</nav>
+
+<a href="{% url 'indexer:category-list' %}">More>>></a>

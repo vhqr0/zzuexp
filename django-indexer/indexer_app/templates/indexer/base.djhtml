@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+
+{% load static %}
+{% load indexer_templatetags %}
+
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Indexer</title>
+        <link href="{% static 'indexer/css/base.css' %}" rel="stylesheet" />
+    </head>
+    <body>
+        <nav id="app-header">
+            <ul id="app-header-left">
+                <li><a href="{% url 'indexer:index' %}">Index</a></li>
+                <li><a href="{% url 'indexer:category-add' %}">Add Category</a></li>
+                <li><a href="{% url 'indexer:page-add' %}">Add Page</a></li>
+                <li><a href="{% url 'indexer:user-list' %}">Users</a></li>
+                <li><a href="{% url 'indexer:about' %}">About</a></li>
+                {% if request.user.is_superuser %}
+                    <li><a href="/admin/">Admin</a></li>
+                {% endif %}
+            </ul>
+            <ul id="app-header-right">
+                {% if request.user.is_authenticated %}
+                    <li>
+                        <a href="{% url 'indexer:user-detail' request.user.pk %}">
+                            <img class="avatar" src="{% url 'indexer:avatar' request.user.pk %}"/>
+                            {{ request.user.username }}
+                        </a>
+                    </li>
+                    <li><a href="{% url 'indexer:logout' %}">Logout</a></li>
+                {% else %}
+                    <li><a href="{% url 'indexer:login' %}">Login</a></li>
+                    <li><a href="{% url 'indexer:signin' %}">Signin</a></li>
+                {% endif %}
+            </ul>
+        </nav>
+        <div class="content">
+            <article id="app-container">
+                {% block body %}
+                {% endblock %}
+            </article>
+            <aside id="app-sider">
+                {% get_category_top %}
+            </aside>
+        </div>
+        <footer id="app-footer">
+            <a href="https://github.com/vhqr0/">&copy;vhqr0@github</a>
+        </footer>
+    </body>
+</html>

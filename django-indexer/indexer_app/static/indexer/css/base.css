@@ -1,0 +1,52 @@
+#app-header ul, #app-header li {
+    display: inline;
+}
+
+#app-header a {
+    color: green;
+}
+
+#app-header-left {
+    margin-right: 30px;
+}
+
+#app-header-right {
+    margin-left: 30px;
+}
+
+
+.helptext {
+    display: block;
+}
+
+.content {
+    margin-top: 30px;
+    display: flex;
+    min-height: 700px;
+}
+
+#app-container {
+    padding: 30px;
+    margin-right: 100px;
+}
+
+#app-sider {
+    padding: 30px;
+    margin-left: 100px;
+}
+
+#app-footer {
+    position: fixed;
+    botton: 0px;
+    width: 100%;
+    text-align: center;
+}
+
+#app-footer a {
+    color: green;
+}
+
+.avatar {
+    width: 32px;
+    height: 32px;
+}
