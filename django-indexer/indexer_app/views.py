@@ -68,17 +68,9 @@ class SigninVerifyView(GenericFormTemplateMixin, FormView):
     legend = 'Signin Verify'
     success_url = reverse_lazy('indexer:login')
 
-    def get(self, request, pk, *args, **kwargs):
-        self.pk = pk
-        return super().get(request, *args, **kwargs)
-
-    def post(self, request, pk, *args, **kwargs):
-        self.pk = pk
-        return super().post(request, *args, **kwargs)
-
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
-        form.record_pk = self.pk
+        form.record_pk = self.kwargs['pk']
         return form
 
     def form_valid(self, form):
